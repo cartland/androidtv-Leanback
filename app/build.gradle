@@ -20,9 +20,16 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
+
+    // Support Libraries
     compile 'com.android.support:recyclerview-v7:+'
     compile 'com.android.support:leanback-v17:+'
     compile 'com.android.support:appcompat-v7:+'
-    compile 'com.github.bumptech.glide:glide:3.4.+'
     compile 'com.android.support:support-v4:+'
+
+    // Google Play Services
+    compile 'com.google.android.gms:play-services:6.5.87'
+
+    // Image loading
+    compile 'com.github.bumptech.glide:glide:3.4.+'
 }

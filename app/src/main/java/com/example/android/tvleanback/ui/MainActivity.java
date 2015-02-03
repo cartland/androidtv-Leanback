@@ -39,4 +39,12 @@ public class MainActivity extends Activity {
         startActivity(new Intent(this, SearchActivity.class));
         return true;
     }
+
+    @Override
+    protected void onActivityResult(int requestCode, int responseCode, Intent intent) {
+        if (requestCode == MainFragment.RC_SIGN_IN) {
+            getFragmentManager().findFragmentById(R.id.main_browse_fragment).
+                    onActivityResult(requestCode, responseCode, intent);
+        }
+    }
 }

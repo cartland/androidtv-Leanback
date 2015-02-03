@@ -16,6 +16,7 @@ package com.example.android.tvleanback.ui;
 
 import android.app.LoaderManager;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.Loader;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -38,12 +39,10 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
 
-
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.GlideDrawable;
 import com.bumptech.glide.request.animation.GlideAnimation;
 import com.bumptech.glide.request.target.SimpleTarget;
-
 import com.example.android.tvleanback.R;
 import com.example.android.tvleanback.data.VideoItemLoader;
 import com.example.android.tvleanback.data.VideoProvider;
@@ -51,6 +50,11 @@ import com.example.android.tvleanback.model.Movie;
 import com.example.android.tvleanback.presenter.CardPresenter;
 import com.example.android.tvleanback.presenter.GridItemPresenter;
 import com.example.android.tvleanback.recommendation.UpdateRecommendationsService;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.Scopes;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.Scope;
+import com.google.android.gms.plus.Plus;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -63,7 +67,9 @@ import java.util.TimerTask;
  * Main class to show BrowseFragment with header and rows of videos
  */
 public class MainFragment extends BrowseFragment implements
-        LoaderManager.LoaderCallbacks<HashMap<String, List<Movie>>> {
+        LoaderManager.LoaderCallbacks<HashMap<String, List<Movie>>>,
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener {
     private static final String TAG = "MainFragment";
 
     private static int BACKGROUND_UPDATE_DELAY = 300;
@@ -76,6 +82,20 @@ public class MainFragment extends BrowseFragment implements
     private URI mBackgroundURI;
     private BackgroundManager mBackgroundManager;
 
+    /** Sign-in **/
+
+    /* Request code used to invoke sign in user interactions. */
+    public static final int RC_SIGN_IN = 0;
+
+    /* Client used to interact with Google APIs. */
+    private GoogleApiClient mGoogleApiClient;
+
+    /* A flag indicating that a PendingIntent is in progress and prevents
+     * us from starting further intents.
+     */
+    private boolean mIntentInProgress;
+
+
     @Override
     public void onActivityCreated(Bundle savedInstanceState) {
         Log.d(TAG, "onCreate");
@@ -86,6 +106,115 @@ public class MainFragment extends BrowseFragment implements
         prepareBackgroundManager();
         setupUIElements();
         setupEventListeners();
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this.getActivity())
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(Plus.API)
+                .addScope(new Scope(Scopes.PROFILE))
+                .build();
+
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        mGoogleApiClient.connect();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+
+        if (mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.disconnect();
+        }
+    }
+
+    // OnConnectionFailedListener interface.
+    @Override
+    public void onConnectionFailed(ConnectionResult result) {
+        if (!mIntentInProgress) {
+            // Store the ConnectionResult so that we can use it later when the user clicks
+            // 'sign-in'.
+            mConnectionResult = result;
+
+            if (mSignInClicked) {
+                // The user has already clicked 'sign-in' so we attempt to resolve all
+                // errors until the user is signed in, or they cancel.
+                resolveSignInError();
+            }
+        }
+    }
+
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        // We've resolved any connection errors.  mGoogleApiClient can be used to
+        // access Google APIs on behalf of the user.
+        mSignInClicked = false;
+        Toast.makeText(getActivity(), "User is connected!", Toast.LENGTH_LONG).show();
+    }
+
+    @Override
+    public void onConnectionSuspended(int cause) {
+        switch (cause) {
+            case GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED:
+                // Do nothing.
+                break;
+            case GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST:
+                mGoogleApiClient.connect();
+                break;
+            default:
+                Log.e(TAG, "Unknown cause, onConnectionSuspended(" + cause + ")");
+                break;
+            }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int responseCode, Intent intent) {
+        if (requestCode == RC_SIGN_IN) {
+            if (responseCode != getActivity().RESULT_OK) {
+                mSignInClicked = false;
+            }
+
+            mIntentInProgress = false;
+
+            if (!mGoogleApiClient.isConnecting()) {
+                mGoogleApiClient.connect();
+            }
+        }
+    }
+
+    /* Track whether the sign-in button has been clicked so that we know to resolve
+ * all issues preventing sign-in without waiting.
+ */
+    private boolean mSignInClicked;
+
+    /* Store the connection result from onConnectionFailed callbacks so that we can
+     * resolve them when the user clicks sign-in.
+     */
+    private ConnectionResult mConnectionResult;
+
+
+    /* A helper method to resolve the current ConnectionResult error. */
+    private void resolveSignInError() {
+        if (mConnectionResult.hasResolution()) {
+            try {
+                mIntentInProgress = true;
+                getActivity().startIntentSenderForResult(mConnectionResult.getResolution().getIntentSender(),
+                        RC_SIGN_IN, null, 0, 0, 0);
+            } catch (IntentSender.SendIntentException e) {
+                // The intent was canceled before it was sent.  Return to the default
+                // state and attempt to connect to get an updated ConnectionResult.
+                mIntentInProgress = false;
+                mGoogleApiClient.connect();
+            }
+        }
     }
 
     @Override
@@ -181,6 +310,7 @@ public class MainFragment extends BrowseFragment implements
         gridRowAdapter.add(getString(R.string.grid_view));
         gridRowAdapter.add(getString(R.string.error_fragment));
         gridRowAdapter.add(getString(R.string.personal_settings));
+        gridRowAdapter.add(getString(R.string.sign_in));
         mRowsAdapter.add(new ListRow(gridHeader, gridRowAdapter));
 
         setAdapter(mRowsAdapter);
@@ -278,9 +408,14 @@ public class MainFragment extends BrowseFragment implements
                 } else if (((String) item).indexOf(getString(R.string.error_fragment)) >= 0) {
                     Intent intent = new Intent(getActivity(), BrowseErrorActivity.class);
                     startActivity(intent);
+                } else if (((String) item).indexOf(getString(R.string.sign_in)) >= 0) {
+                    Toast.makeText(getActivity(), ((String) item), Toast.LENGTH_SHORT).show();
+                    if (!mGoogleApiClient.isConnecting()) {
+                        mSignInClicked = true;
+                        resolveSignInError();
+                    }
                 } else {
-                    Toast.makeText(getActivity(), ((String) item), Toast.LENGTH_SHORT)
-                            .show();
+                    Toast.makeText(getActivity(), ((String) item), Toast.LENGTH_SHORT).show();
                 }
             }
         }
